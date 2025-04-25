@@ -1,5 +1,6 @@
 package src2.cliente;
 
+import java.io.ByteArrayOutputStream;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.math.BigInteger;
@@ -8,8 +9,13 @@ import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.MessageDigest;
 import java.security.PublicKey;
+import java.security.SecureRandom;
 import java.security.spec.X509EncodedKeySpec;
-import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.crypto.SecretKey;
 import javax.crypto.spec.DHParameterSpec;
@@ -29,72 +35,84 @@ public class Cliente {
             // Recibe p, g y clave pública del servidor
             BigInteger p = (BigInteger) in.readObject();
             BigInteger g = (BigInteger) in.readObject();
-            byte[] servidorPubEncoded = (byte[]) in.readObject();
+            byte[] gx = (byte[]) in.readObject();
 
+            PublicKey pub = LlaveUtil.cargarLlavePublica("src2/keys/public.key");
+
+            byte[] firma = (byte[]) in.readObject();
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            ObjectOutputStream oos = new ObjectOutputStream(baos);
+            oos.writeObject(g);
+            oos.writeObject(p);
+            oos.writeObject(gx);
+            oos.close();
+            byte[] datos = baos.toByteArray(); // (G, P, G^x)
+
+            if(!SeguridadUtil.verificarFirma(datos, firma, pub)){
+                System.out.println("Error en la consulta: HMAC inválido"); //bien
+                return;
+            }
+            
             // Genera claves cliente y las envía
             DHParameterSpec dhParams = new DHParameterSpec(p, g);
             KeyPair parCliente = SeguridadUtil.generarDHKeyPair(dhParams);
-            out.writeObject(parCliente.getPublic().getEncoded());
-
-            // Reconstruye clave pública del servidor y deriva llaves de sesión
             KeyFactory keyFactory = KeyFactory.getInstance("DH");
-            X509EncodedKeySpec keySpec = new X509EncodedKeySpec(servidorPubEncoded);
-            PublicKey pubServidor = keyFactory.generatePublic(keySpec);
-            byte[] secreto = SeguridadUtil.calcularSecretoCompartido(parCliente.getPrivate(), pubServidor);
-            SecretKey[] llaves = SeguridadUtil.derivarLlaves(secreto);
-
-            System.out.println("Cliente: Intercambio de claves completado.");
-
-            // Recibir tabla de servicios (cifrada, con HMAC)
-            System.out.println("Esperando IV...");
-            byte[] ivBytes = (byte[]) in.readObject();
-            System.out.println("IV recibido.");
-            byte[] cifrado = (byte[]) in.readObject();
-            byte[] hmac = (byte[]) in.readObject();
-
-            byte[] hmacLocal = SeguridadUtil.calcularHMAC(cifrado, llaves[1]);
-            if (!MessageDigest.isEqual(hmac, hmacLocal)) {
-                System.out.println("Error en la consulta: HMAC inválido");
-                return;
-            }
-
+            X509EncodedKeySpec keySpec = new X509EncodedKeySpec(gx);
+            PublicKey pubServer = keyFactory.generatePublic(keySpec); // G^x
+            byte[] calculoSecreto = SeguridadUtil.calcularSecretoCompartido(parCliente.getPrivate(), pubServer); //(G^x)^y
+            out.writeObject(parCliente.getPublic().getEncoded()); // G^y se lo envio al servidor 
+            
+            SecretKey[] llaves = SeguridadUtil.derivarLlaves(calculoSecreto);
+            byte[] ivBytes = new byte[16];
+            new SecureRandom().nextBytes(ivBytes);
             IvParameterSpec iv = new IvParameterSpec(ivBytes);
-            byte[] datosFirmados = SeguridadUtil.descifrarAES(cifrado, llaves[0], iv);
+            byte[] ivBytesEnviar = iv.getIV(); 
+            out.writeObject(ivBytesEnviar); // IV para el cifrado
 
-            int firmaLen = 128;
-            int datosLen = datosFirmados.length - firmaLen;
-            byte[] datos = Arrays.copyOfRange(datosFirmados, 0, datosLen);
-            byte[] firma = Arrays.copyOfRange(datosFirmados, datosLen, datosFirmados.length);
-
-            PublicKey pub = LlaveUtil.cargarLlavePublica("src2/keys/public.key");
-            if (!SeguridadUtil.verificarFirma(datos, firma, pub)) {
-                System.out.println("Error en la consulta: Firma inválida");
-                return;
-            }
-
-            System.out.println("Servicios disponibles:");
-            System.out.println(new String(datos));
-
-            // Enviar ID del servicio deseado
-            int id = 1; // Hardcodeado para ejemplo
-            byte[] idBytes = String.valueOf(id).getBytes();
-            byte[] idCifrado = SeguridadUtil.cifrarAES(idBytes, llaves[0], iv);
-            byte[] hmacConsulta = SeguridadUtil.calcularHMAC(idCifrado, llaves[1]);
-            out.writeObject(idCifrado);
-            out.writeObject(hmacConsulta);
-
-            // Recibir respuesta del servidor (IP y puerto)
             byte[] respuestaCifrada = (byte[]) in.readObject();
             byte[] hmacRespuesta = (byte[]) in.readObject();
 
-            byte[] hmacRespCalc = SeguridadUtil.calcularHMAC(respuestaCifrada, llaves[1]);
-            if (!MessageDigest.isEqual(hmacRespuesta, hmacRespCalc)) {
+            byte[] datosCalculados = SeguridadUtil.descifrarAES(respuestaCifrada, llaves[0], iv);
+            byte[] hmacConsulta = SeguridadUtil.calcularHMAC(datosCalculados, llaves[1]);
+
+            if (!MessageDigest.isEqual(hmacRespuesta, hmacConsulta)) {
                 System.out.println("Error: HMAC inválido en respuesta.");
                 return;
             }
 
-            byte[] respuesta = SeguridadUtil.descifrarAES(respuestaCifrada, llaves[0], iv);
-            System.out.println("Respuesta del servidor (IP, puerto): " + new String(respuesta));
+            String json = new String(datosCalculados);
+            List<Integer> ids = new ArrayList<>();
+            // Espera una estructura como: [{"id":1,"nombre":"EstadoVuelo"},...]
+            Pattern pattern = Pattern.compile("\\{\"id\":(\\d+),\"nombre\":\"[^\"]+\"\\}");
+            Matcher matcher = pattern.matcher(json);
+            while (matcher.find()) {
+                int id = Integer.parseInt(matcher.group(1));
+                ids.add(id);
+            }
+            Random rand = new Random();
+            int idSeleccionado = ids.get(rand.nextInt(ids.size()));
+            
+            String idSeleccionadoString = String.valueOf(idSeleccionado);
+
+            String servicioSeleccionado = idSeleccionadoString + '+' + socket.getInetAddress();
+            System.out.println("Servicio seleccionado: " + servicioSeleccionado);
+            //pasa servicioSeleccionado a bytes
+            byte[] idSeleccionadoBytes = servicioSeleccionado.getBytes();
+            byte[] servicioDeseadoCifrado = SeguridadUtil.cifrarAES(idSeleccionadoBytes, llaves[0], iv);
+            byte[] hmacConsulta2 = SeguridadUtil.calcularHMAC(idSeleccionadoBytes, llaves[1]);
+            out.writeObject(servicioDeseadoCifrado);
+            out.writeObject(hmacConsulta2);
+
+            byte[] respuestaCifradaFinal = (byte[]) in.readObject();
+            byte[] hmacRespuestaFinal = (byte[]) in.readObject();
+
+            byte[] datosCalculadosFinal = SeguridadUtil.descifrarAES(respuestaCifradaFinal, llaves[0], iv);
+            byte[] hmacConsultaFinal = SeguridadUtil.calcularHMAC(datosCalculadosFinal, llaves[1]);
+
+            if (!MessageDigest.isEqual(hmacRespuestaFinal, hmacConsultaFinal)) {
+                System.out.println("Error: HMAC inválido en respuesta. ESTE?");
+                return;
+            }
 
         } catch (Exception e) {
             e.printStackTrace();

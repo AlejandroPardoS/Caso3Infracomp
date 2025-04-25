@@ -4,13 +4,14 @@ import java.io.ByteArrayOutputStream;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.MessageDigest;
 import java.security.PrivateKey;
 import java.security.PublicKey;
-import java.security.SecureRandom;
 import java.security.spec.X509EncodedKeySpec;
+import java.util.Map;
 
 import javax.crypto.SecretKey;
 import javax.crypto.spec.DHParameterSpec;
@@ -36,77 +37,73 @@ public class Delegado implements Runnable {
             // Envia p, g y la clave pública del servidor al cliente
             out.writeObject(dhParams.getP());
             out.writeObject(dhParams.getG());
-            out.writeObject(parServidor.getPublic().getEncoded());
-
-            // Recibe la clave pública del cliente
-            byte[] pubClienteEncoded = (byte[]) in.readObject();
-            KeyFactory keyFactory = KeyFactory.getInstance("DH");
-            X509EncodedKeySpec keySpec = new X509EncodedKeySpec(pubClienteEncoded);
-            PublicKey pubCliente = keyFactory.generatePublic(keySpec);
-
-            // Calcula el secreto compartido y deriva llaves de sesión (AES + HMAC)
-            byte[] secreto = SeguridadUtil.calcularSecretoCompartido(parServidor.getPrivate(), pubCliente);
-            SecretKey[] llaves = SeguridadUtil.derivarLlaves(secreto);
+            out.writeObject(parServidor.getPublic().getEncoded()); // esto es G^x
 
             PrivateKey llavePrivada = LlaveUtil.cargarLlavePrivada("src2/keys/private.key");
 
-            ServicioManager gestor = new ServicioManager();
-            StringBuilder tabla = new StringBuilder("[");
-            for (Servicio s : gestor.obtenerTodos()) {
-                tabla.append(s.toString()).append(",");
-            }
-            tabla.deleteCharAt(tabla.length() - 1);
-            tabla.append("]");
-
-            // Firmar la tabla (autenticidad)
-            byte[] datos = tabla.toString().getBytes();
-            byte[] firma = SeguridadUtil.firmar(datos, llavePrivada);
-
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            baos.write(datos);
-            baos.write(firma);
-            byte[] datosFirmados = baos.toByteArray();
+            ObjectOutputStream oos = new ObjectOutputStream(baos);
+            oos.writeObject(dhParams.getG());
+            oos.writeObject(dhParams.getP());
+            oos.writeObject(parServidor.getPublic().getEncoded());
+            oos.close();
+            byte[] datos = baos.toByteArray(); // (G, P, G^x)
 
-            // Generar IV y cifrar con AES
-            byte[] ivBytes = new byte[16];
-            new SecureRandom().nextBytes(ivBytes);
+            byte[] firma = SeguridadUtil.firmar(datos, llavePrivada); // F(Kw-, (G,P,G^x))
+            out.writeObject(firma); // F(Kw-, (G,P,G^x))
+
+            byte[] gy = (byte[]) in.readObject(); // G^y del cliente
+            KeyFactory keyFactory = KeyFactory.getInstance("DH");
+            X509EncodedKeySpec keySpec = new X509EncodedKeySpec(gy);
+            PublicKey pubCliente = keyFactory.generatePublic(keySpec);
+            byte[] calculoSecretoDelegado = SeguridadUtil.calcularSecretoCompartido(parServidor.getPrivate(), pubCliente); //(G^x)^y
+
+            SecretKey[] llaves = SeguridadUtil.derivarLlaves(calculoSecretoDelegado);
+            
+            byte[] ivBytes = (byte[]) in.readObject();
             IvParameterSpec iv = new IvParameterSpec(ivBytes);
-            byte[] cifrado = SeguridadUtil.cifrarAES(datosFirmados, llaves[0], iv);
-            byte[] hmac = SeguridadUtil.calcularHMAC(cifrado, llaves[1]);
+           
+            ServicioManager gestor = new ServicioManager();
+            Map<Integer, String> nombresServicios = gestor.obtenerNombresServicios();
+            StringBuilder tabla = new StringBuilder("[");
+            for (Map.Entry<Integer, String> entry : nombresServicios.entrySet()) {
+                int id = entry.getKey();
+                String nombre = entry.getValue();
+                tabla.append("{\"id\":").append(id).append(",\"nombre\":\"").append(nombre).append("\"},");
+            }
+            tabla.deleteCharAt(tabla.length() - 1); // Eliminar la última coma
+            tabla.append("]");
+            byte[] datosServicios = tabla.toString().getBytes();
+            byte[] datosServiciosCifrado = SeguridadUtil.cifrarAES(datosServicios, llaves[0], iv);
+            byte[] hmac = SeguridadUtil.calcularHMAC(datosServicios, llaves[1]);
+            out.writeObject(datosServiciosCifrado); // Enviar datos cifrados
+            out.writeObject(hmac); // Enviar HMAC
 
-            System.out.println("Enviando IV...");
-            out.writeObject(ivBytes);
-            System.out.println("Enviando datos cifrados...");
-            out.writeObject(cifrado);
-            System.out.println("Enviando HMAC...");
-            out.writeObject(hmac);
-            System.out.println("Datos enviados exitosamente.");
+            byte[] servicioCliente = (byte[]) in.readObject(); // Recibir consulta del cliente
+            byte[] hmacConsulta2 = (byte[]) in.readObject(); // HMAC de la consulta
 
-            // Recibir consulta del cliente (ID cifrado + HMAC)
-            byte[] consultaCifrada = (byte[]) in.readObject();
-            byte[] hmacConsulta = (byte[]) in.readObject();
+            byte[] datosCalculados = SeguridadUtil.descifrarAES(servicioCliente, llaves[0], iv);
+            byte[] hmacConsulta = SeguridadUtil.calcularHMAC(datosCalculados, llaves[1]);
 
-            // 2. Verifica integridad con HMAC
-            byte[] hmacCalc = SeguridadUtil.calcularHMAC(consultaCifrada, llaves[1]);
-            if (!MessageDigest.isEqual(hmacConsulta, hmacCalc)) {
-                System.out.println("Error: HMAC inválido en la consulta.");
+            if (!MessageDigest.isEqual(hmacConsulta2, hmacConsulta)) {
+                System.out.println("Error: HMAC inválido en respuesta.");
                 return;
             }
 
-            // Descifra con AES
-            byte[] consultaDescifrada = SeguridadUtil.descifrarAES(consultaCifrada, llaves[0], iv);
-            int idServicio = Integer.parseInt(new String(consultaDescifrada));
+            String datosServicioDesaeado = new String(datosCalculados, StandardCharsets.UTF_8);
+            String[] partes = datosServicioDesaeado.split("\\+");
+            int id = Integer.parseInt(partes[0]);
+            //String ipCliente = partes[1];
 
-            Servicio serv = gestor.obtenerServicio(idServicio);
-            String respuesta = (serv == null) ? "-1,-1" : serv.getIp() + ", " + serv.getPuerto();
+            // Obtener el servicio deseado
+            String respuesta = (id == -1) ? "-1,-1" : gestor.obtenerServicio(id).getIp() + ", " + gestor.obtenerServicio(id).getPuerto();
             byte[] respuestaBytes = respuesta.getBytes();
-
+            
             byte[] respuestaCifrada = SeguridadUtil.cifrarAES(respuestaBytes, llaves[0], iv);
-            byte[] hmacResp = SeguridadUtil.calcularHMAC(respuestaCifrada, llaves[1]);
-
-            out.writeObject(respuestaCifrada);
-            out.writeObject(hmacResp);
-
+            byte[] hmacResp = SeguridadUtil.calcularHMAC(respuestaBytes, llaves[1]);
+            out.writeObject(respuestaCifrada); // Enviar respuesta cifrada
+            out.writeObject(hmacResp); // Enviar HMAC de la respuesta
+            
         } catch (Exception e) {
             e.printStackTrace();
         }
