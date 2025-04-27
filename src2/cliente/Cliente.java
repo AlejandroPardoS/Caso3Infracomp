@@ -5,6 +5,7 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.math.BigInteger;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.MessageDigest;
@@ -89,9 +90,16 @@ public class Cliente {
                 int id = Integer.parseInt(matcher.group(1));
                 ids.add(id);
             }
+
             Random rand = new Random();
-            int idSeleccionado = ids.get(rand.nextInt(ids.size()));
-            
+            int chance = rand.nextInt(100);
+
+            int idSeleccionado;
+            if (chance < 20) { 
+                idSeleccionado = 9999; // ID inválido
+            } else {
+                idSeleccionado = ids.get(rand.nextInt(ids.size())); // ID válido
+            }
             String idSeleccionadoString = String.valueOf(idSeleccionado);
 
             String servicioSeleccionado = idSeleccionadoString + '+' + socket.getInetAddress();
@@ -112,6 +120,9 @@ public class Cliente {
             if (!MessageDigest.isEqual(hmacRespuestaFinal, hmacConsultaFinal)) {
                 System.out.println("Error: HMAC inválido en respuesta. ESTE?");
                 return;
+            } else {
+                String respuestaServer = new String(datosCalculadosFinal, StandardCharsets.UTF_8);
+                System.out.println(respuestaServer);
             }
 
         } catch (Exception e) {

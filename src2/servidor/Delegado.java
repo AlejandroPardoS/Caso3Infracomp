@@ -96,7 +96,12 @@ public class Delegado implements Runnable {
             //String ipCliente = partes[1];
 
             // Obtener el servicio deseado
-            String respuesta = (id == -1) ? "-1,-1" : gestor.obtenerServicio(id).getIp() + ", " + gestor.obtenerServicio(id).getPuerto();
+            String respuesta = "";
+            if(gestor.existeServicio(id)){
+                respuesta = gestor.obtenerServicio(id).getIp() + ", " + gestor.obtenerServicio(id).getPuerto();
+            } else {
+                respuesta = "-1,-1";
+            }
             byte[] respuestaBytes = respuesta.getBytes();
             
             byte[] respuestaCifrada = SeguridadUtil.cifrarAES(respuestaBytes, llaves[0], iv);

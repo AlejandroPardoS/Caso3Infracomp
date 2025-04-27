@@ -28,6 +28,10 @@ public class ServicioManager {
         return servicios.get(id);
     }
 
+    public boolean existeServicio(int id) {
+        return servicios.containsKey(id);
+    }
+
     public Collection<Servicio> obtenerTodos() {
         return servicios.values();
     }
