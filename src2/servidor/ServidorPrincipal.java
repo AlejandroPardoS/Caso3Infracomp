@@ -9,7 +9,7 @@ import java.util.concurrent.Executors;
 public class ServidorPrincipal {
 
     private static final int PUERTO = 12345;
-    private static final int MAX_CLIENTES = 64;
+    private static final int MAX_CLIENTES = 65;
 
     public static void main(String[] args) {
         ExecutorService pool = Executors.newFixedThreadPool(MAX_CLIENTES);

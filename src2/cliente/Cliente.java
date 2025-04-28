@@ -103,7 +103,7 @@ public class Cliente {
             String idSeleccionadoString = String.valueOf(idSeleccionado);
 
             String servicioSeleccionado = idSeleccionadoString + '+' + socket.getInetAddress();
-            System.out.println("Servicio seleccionado: " + servicioSeleccionado);
+            //System.out.println("Servicio seleccionado: " + servicioSeleccionado);
             //pasa servicioSeleccionado a bytes
             byte[] idSeleccionadoBytes = servicioSeleccionado.getBytes();
             byte[] servicioDeseadoCifrado = SeguridadUtil.cifrarAES(idSeleccionadoBytes, llaves[0], iv);
@@ -118,11 +118,11 @@ public class Cliente {
             byte[] hmacConsultaFinal = SeguridadUtil.calcularHMAC(datosCalculadosFinal, llaves[1]);
 
             if (!MessageDigest.isEqual(hmacRespuestaFinal, hmacConsultaFinal)) {
-                System.out.println("Error: HMAC inválido en respuesta. ESTE?");
+                //System.out.println("Error: HMAC inválido en respuesta. ESTE?");
                 return;
             } else {
                 String respuestaServer = new String(datosCalculadosFinal, StandardCharsets.UTF_8);
-                System.out.println(respuestaServer);
+                //System.out.println(respuestaServer);
             }
 
         } catch (Exception e) {

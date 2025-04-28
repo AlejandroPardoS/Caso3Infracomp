@@ -49,8 +49,11 @@ public class Delegado implements Runnable {
             oos.close();
             byte[] datos = baos.toByteArray(); // (G, P, G^x)
 
+            long startFirma = System.nanoTime();
             byte[] firma = SeguridadUtil.firmar(datos, llavePrivada); // F(Kw-, (G,P,G^x))
             out.writeObject(firma); // F(Kw-, (G,P,G^x))
+            long endFirma = System.nanoTime();
+            System.out.println("Tiempo para firmar (ns): " + (endFirma - startFirma));
 
             byte[] gy = (byte[]) in.readObject(); // G^y del cliente
             KeyFactory keyFactory = KeyFactory.getInstance("DH");
@@ -73,9 +76,12 @@ public class Delegado implements Runnable {
             }
             tabla.deleteCharAt(tabla.length() - 1); // Eliminar la última coma
             tabla.append("]");
+            long startCifrado = System.nanoTime();
             byte[] datosServicios = tabla.toString().getBytes();
             byte[] datosServiciosCifrado = SeguridadUtil.cifrarAES(datosServicios, llaves[0], iv);
+            long endCifrado = System.nanoTime();
             byte[] hmac = SeguridadUtil.calcularHMAC(datosServicios, llaves[1]);
+            System.out.println("Tiempo para cifrar tabla (ns): " + (endCifrado - startCifrado));
             out.writeObject(datosServiciosCifrado); // Enviar datos cifrados
             out.writeObject(hmac); // Enviar HMAC
 
@@ -83,12 +89,15 @@ public class Delegado implements Runnable {
             byte[] hmacConsulta2 = (byte[]) in.readObject(); // HMAC de la consulta
 
             byte[] datosCalculados = SeguridadUtil.descifrarAES(servicioCliente, llaves[0], iv);
+            long startVerificacion = System.nanoTime();
             byte[] hmacConsulta = SeguridadUtil.calcularHMAC(datosCalculados, llaves[1]);
 
             if (!MessageDigest.isEqual(hmacConsulta2, hmacConsulta)) {
                 System.out.println("Error: HMAC inválido en respuesta.");
                 return;
             }
+            long endVerificacion = System.nanoTime();
+            System.out.println("Tiempo para verificar consulta (ns): " + (endVerificacion - startVerificacion));
 
             String datosServicioDesaeado = new String(datosCalculados, StandardCharsets.UTF_8);
             String[] partes = datosServicioDesaeado.split("\\+");
