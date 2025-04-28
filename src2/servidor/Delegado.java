@@ -112,8 +112,17 @@ public class Delegado implements Runnable {
                 respuesta = "-1,-1";
             }
             byte[] respuestaBytes = respuesta.getBytes();
-            
+            long startCifradoRespuestaSimetrico = System.nanoTime();
             byte[] respuestaCifrada = SeguridadUtil.cifrarAES(respuestaBytes, llaves[0], iv);
+            long endCifradoRespuestaSimetrico = System.nanoTime();
+            System.out.println("Tiempo para cifrar respuesta simetrica (ns): " + (endCifradoRespuestaSimetrico - startCifradoRespuestaSimetrico));
+
+            
+            long startCifradoRespuestaAsimetrico = System.nanoTime();
+            SeguridadUtil.cifrarRSA(respuestaBytes, LlaveUtil.cargarLlavePublica("src2/keys/public.key")); // Cifrado asimétrico
+            long endCifradoRespuestaAsimetrico = System.nanoTime();
+            System.out.println("Tiempo para cifrar respuesta asimetrico (ns): " + (endCifradoRespuestaAsimetrico - startCifradoRespuestaAsimetrico));
+            
             byte[] hmacResp = SeguridadUtil.calcularHMAC(respuestaBytes, llaves[1]);
             out.writeObject(respuestaCifrada); // Enviar respuesta cifrada
             out.writeObject(hmacResp); // Enviar HMAC de la respuesta

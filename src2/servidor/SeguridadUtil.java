@@ -56,6 +56,21 @@ public class SeguridadUtil {
         return cipher.doFinal(datos);
     }
 
+    // Cifrar con RSA (asimétrico)
+    public static byte[] cifrarRSA(byte[] datos, PublicKey llavePublica) throws Exception {
+        Cipher cipher = Cipher.getInstance("RSA");
+        cipher.init(Cipher.ENCRYPT_MODE, llavePublica);
+        return cipher.doFinal(datos);
+    }
+
+    // Descifrar con RSA (asimétrico)
+    public static byte[] descifrarRSA(byte[] datosCifrados, PrivateKey llavePrivada) throws Exception {
+        Cipher cipher = Cipher.getInstance("RSA");
+        cipher.init(Cipher.DECRYPT_MODE, llavePrivada);
+        return cipher.doFinal(datosCifrados);
+    }
+
+
     public static byte[] firmar(byte[] datos, PrivateKey llavePrivada) throws Exception {
         Signature firma = Signature.getInstance("SHA256withRSA");
         firma.initSign(llavePrivada);

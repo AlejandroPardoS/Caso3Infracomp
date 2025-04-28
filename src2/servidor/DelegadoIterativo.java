@@ -81,12 +81,13 @@ public class DelegadoIterativo implements Runnable {
                 }
                 tabla.deleteCharAt(tabla.length() - 1); // Eliminar la última coma
                 tabla.append("]");
-                long startCifrado = System.nanoTime();
+                //long startCifradoSimetrico = System.nanoTime();
                 byte[] datosServicios = tabla.toString().getBytes();
                 byte[] datosServiciosCifrado = SeguridadUtil.cifrarAES(datosServicios, llaves[0], iv);
-                long endCifrado = System.nanoTime();
+                //long endCifradoSimetrico = System.nanoTime();
+                
                 byte[] hmac = SeguridadUtil.calcularHMAC(datosServicios, llaves[1]);
-                System.out.println("Tiempo para cifrar tabla (ns): " + (endCifrado - startCifrado));
+                
                 out.writeObject(datosServiciosCifrado); // Enviar datos cifrados
                 out.writeObject(hmac); // Enviar HMAC
 
@@ -118,7 +119,15 @@ public class DelegadoIterativo implements Runnable {
                 }
                 byte[] respuestaBytes = respuesta.getBytes();
                 
+                long startCifradoRespuestaSimetrico = System.nanoTime();
                 byte[] respuestaCifrada = SeguridadUtil.cifrarAES(respuestaBytes, llaves[0], iv);
+                long endCifradoRespuestaSimetrico = System.nanoTime();
+                System.out.println("Tiempo para cifrar respuesta simetrico (ns): " + (endCifradoRespuestaSimetrico - startCifradoRespuestaSimetrico));
+
+                long startCifradoRespuestaAsimetrico = System.nanoTime();
+                SeguridadUtil.cifrarRSA(respuestaBytes, parServidor.getPublic()); // Cifrado asimétrico
+                long endCifradoRespuestaAsimetrico = System.nanoTime();
+                System.out.println("Tiempo para cifrar respuesta asimetrico (ns): " + (endCifradoRespuestaAsimetrico - startCifradoRespuestaAsimetrico));
                 byte[] hmacResp = SeguridadUtil.calcularHMAC(respuestaBytes, llaves[1]);
                 out.writeObject(respuestaCifrada); // Enviar respuesta cifrada
                 out.writeObject(hmacResp); // Enviar HMAC de la respuesta
