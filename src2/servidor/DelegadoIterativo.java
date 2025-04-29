@@ -22,6 +22,7 @@ import src2.cliente.ClienteIterativo;
 public class DelegadoIterativo implements Runnable {
     private Socket socket;
 
+
     public DelegadoIterativo(Socket socket) {
         this.socket = socket;
     }
@@ -33,7 +34,8 @@ public class DelegadoIterativo implements Runnable {
             ObjectInputStream in = new ObjectInputStream(socket.getInputStream());
         ) {
             // Genera parámetros DH (p, g)
-            for (int i = 0; i < ClienteIterativo.numConsultas; i++) {
+            long startTiempoTotal = 0;
+            for (int i = 0; i < 1000; i++) {
                 DHParameterSpec dhParams = SeguridadUtil.generarParametrosDH();
                 KeyPair parServidor = SeguridadUtil.generarDHKeyPair(dhParams);
 
@@ -81,10 +83,11 @@ public class DelegadoIterativo implements Runnable {
                 }
                 tabla.deleteCharAt(tabla.length() - 1); // Eliminar la última coma
                 tabla.append("]");
-                //long startCifradoSimetrico = System.nanoTime();
+                long startCifradoSimetrico = System.nanoTime();
                 byte[] datosServicios = tabla.toString().getBytes();
                 byte[] datosServiciosCifrado = SeguridadUtil.cifrarAES(datosServicios, llaves[0], iv);
-                //long endCifradoSimetrico = System.nanoTime();
+                long endCifradoSimetrico = System.nanoTime();
+                startTiempoTotal += endCifradoSimetrico - startCifradoSimetrico;
                 
                 byte[] hmac = SeguridadUtil.calcularHMAC(datosServicios, llaves[1]);
                 
@@ -118,20 +121,23 @@ public class DelegadoIterativo implements Runnable {
                     respuesta = "-1,-1";
                 }
                 byte[] respuestaBytes = respuesta.getBytes();
-                
                 long startCifradoRespuestaSimetrico = System.nanoTime();
                 byte[] respuestaCifrada = SeguridadUtil.cifrarAES(respuestaBytes, llaves[0], iv);
                 long endCifradoRespuestaSimetrico = System.nanoTime();
-                System.out.println("Tiempo para cifrar respuesta simetrico (ns): " + (endCifradoRespuestaSimetrico - startCifradoRespuestaSimetrico));
-
+                System.out.println("Tiempo para cifrar respuesta simetrica (ns): " + (endCifradoRespuestaSimetrico - startCifradoRespuestaSimetrico));
+                startTiempoTotal += endCifradoRespuestaSimetrico - startCifradoRespuestaSimetrico;
+    
+                
                 long startCifradoRespuestaAsimetrico = System.nanoTime();
-                SeguridadUtil.cifrarRSA(respuestaBytes, parServidor.getPublic()); // Cifrado asimétrico
+                SeguridadUtil.cifrarRSA(respuestaBytes, LlaveUtil.cargarLlavePublica("src2/keys/public.key")); // Cifrado asimétrico
                 long endCifradoRespuestaAsimetrico = System.nanoTime();
                 System.out.println("Tiempo para cifrar respuesta asimetrico (ns): " + (endCifradoRespuestaAsimetrico - startCifradoRespuestaAsimetrico));
+                
                 byte[] hmacResp = SeguridadUtil.calcularHMAC(respuestaBytes, llaves[1]);
                 out.writeObject(respuestaCifrada); // Enviar respuesta cifrada
                 out.writeObject(hmacResp); // Enviar HMAC de la respuesta
             }
+            System.out.println("Tiempo total de cifrado: " + startTiempoTotal);
             
         } catch (Exception e) {
             e.printStackTrace();

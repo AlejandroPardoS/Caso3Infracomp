@@ -3,7 +3,7 @@ package src2.cliente;
 public class Clientes {
 
     public static void main(String[] args) {
-        int numClientes = 16; 
+        int numClientes = 500; 
 
         for (int i = 0; i < numClientes; i++) {
             Thread clienteThread = new Thread(() -> {

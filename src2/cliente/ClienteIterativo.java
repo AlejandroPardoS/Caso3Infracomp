@@ -27,7 +27,7 @@ import src2.servidor.SeguridadUtil;
 
 public class ClienteIterativo {
 
-    public static int numConsultas = 32;
+    private static int numConsultas = 1000;
 
     public static void main(String[] args) {
         try (
@@ -134,6 +134,10 @@ public class ClienteIterativo {
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    public int getNumConsultas(){
+        return this.numConsultas;
     }
 
 }
